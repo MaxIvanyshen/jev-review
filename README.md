@@ -89,6 +89,27 @@ WantedBy=multi-user.target
 sudo systemctl enable --now jev-review
 ```
 
+## CLI client
+
+`jev_client.py` talks to a running jev-review server (see above) — pipe it
+a diff, or let it fall back to `git diff` in the current repo:
+
+```bash
+jev_client.py --staged        # review what's staged
+gh pr diff 123 | jev_client.py # review an arbitrary diff
+```
+
+Points at `$JEV_REVIEW_URL` (default: this homelab's public endpoint) and
+sends `$JEV_REVIEW_ACCESS_KEY` as a Bearer token if the server has auth
+enabled. `jev_client.py --help` for all flags.
+
+## Agent skill
+
+`skills/jev-review/SKILL.md` teaches a coding agent when and how to call
+this (triage before a deep manual review, not a substitute for one) and
+how to read the report. Symlink it into `~/.claude/skills/jev-review` (or
+your agent's skills directory) to make it available.
+
 ## Report shape
 
 ```json
