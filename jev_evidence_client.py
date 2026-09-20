@@ -45,7 +45,10 @@ def main():
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        # ponytail: /evidence calls Jev once per candidate sequentially,
+        # so worst case (20 candidates) can take minutes; batch/parallel
+        # calls if this needs to be fast.
+        with urllib.request.urlopen(req, timeout=600) as resp:
             body = resp.read()
     except urllib.error.HTTPError as e:
         sys.exit(f"jev-review server error {e.code}: {e.read().decode(errors='replace')}")

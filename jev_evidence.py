@@ -12,6 +12,7 @@ import json
 import os
 import sys
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 JEV_URL = "https://ai-gateway.vercel.sh/v1/evaluate"
 MAX_CANDIDATES = 20
@@ -43,6 +44,17 @@ def split_candidates(text):
     return blocks[:MAX_CANDIDATES] if blocks else []
 
 
+def _score_candidate(args):
+    i, excerpt, questions, api_key = args
+    answer = ask_jev(excerpt[:MAX_CANDIDATE_CHARS], questions, api_key)["answers"]["relevant"]
+    return {
+        "index": i,
+        "excerpt": excerpt,
+        "probability": answer["probability"],
+        "relevant": answer["probability"] >= 0.5,
+    }
+
+
 def select_relevant(question, candidates, api_key):
     questions = {
         "relevant": {
@@ -50,18 +62,10 @@ def select_relevant(question, candidates, api_key):
             "instructions": QUESTION_TEMPLATE["relevant"]["instructions"].format(question=question),
         }
     }
-    results = []
-    for i, excerpt in enumerate(candidates):
-        answer = ask_jev(excerpt[:MAX_CANDIDATE_CHARS], questions, api_key)["answers"]["relevant"]
-        results.append(
-            {
-                "index": i,
-                "excerpt": excerpt,
-                "probability": answer["probability"],
-                "relevant": answer["probability"] >= 0.5,
-            }
-        )
-    return results
+    jobs = [(i, excerpt, questions, api_key) for i, excerpt in enumerate(candidates)]
+    with ThreadPoolExecutor(max_workers=min(len(jobs), 8)) as pool:
+        results = list(pool.map(_score_candidate, jobs))
+    return sorted(results, key=lambda r: r["index"])
 
 
 def build_report(question, results):
