@@ -103,27 +103,28 @@ Points at `$JEV_REVIEW_URL` (default: this homelab's public endpoint) and
 sends `$JEV_REVIEW_ACCESS_KEY` as a Bearer token if the server has auth
 enabled. `jev_client.py --help` for all flags.
 
-## Install (CLI + agent skill)
+## Install (CLI)
 
 ```bash
 ./install.sh
 ```
 
-Copies `skills/jev-review/SKILL.md` to `~/.agents/skills/jev-review/SKILL.md`
-and `jev_client.py` to `~/.local/bin/jev-review` (executable). Re-run it
-after pulling changes to either file — it's a plain copy, not a symlink.
-
-No shell handy, just a coding agent? Paste this:
-
-> Clone github.com/MaxIvanyshen/jev-review (or use the local copy at
-> `<path>`) and run its `install.sh` to install the `jev-review` CLI and
-> agent skill for me.
+Copies `jev_client.py` to `~/.local/bin/jev-review` (executable). Re-run
+it after pulling changes — it's a plain copy, not a symlink.
 
 ## Agent skill
 
 `skills/jev-review/SKILL.md` teaches a coding agent when and how to call
 this (triage before a deep manual review, not a substitute for one) and
-how to read the report.
+how to read the report. Every coding agent keeps skills/rules in a
+different place, so there's no one path to copy it to — instead, paste
+this prompt to whichever agent you're using and let it install itself:
+
+> Clone github.com/MaxIvanyshen/jev-review (or use the local copy at
+> `<path>`), run its `install.sh` to install the `jev-review` CLI, then
+> read `skills/jev-review/SKILL.md` and install it as a skill/rule using
+> your own convention (e.g. `~/.claude/skills/`, `~/.agents/skills/`,
+> `.cursor/rules/`) so you can use it in future sessions.
 
 ## Report shape
 
