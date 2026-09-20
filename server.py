@@ -16,6 +16,7 @@ import sys
 import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from jev_evidence import build_report as build_evidence_report, select_relevant, split_candidates
 from jev_review import build_report, review_file, split_diff
 
 API_KEY = os.environ.get("AI_GATEWAY_API_KEY")
@@ -50,7 +51,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(404, {"error": "not found"})
 
     def do_POST(self):
-        if self.path != "/review":
+        if self.path not in ("/review", "/evidence"):
             self._send_json(404, {"error": "not found"})
             return
 
@@ -63,10 +64,16 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "empty body"})
             return
         if length > MAX_BODY_BYTES:
-            self._send_json(413, {"error": "diff too large"})
+            self._send_json(413, {"error": "body too large"})
             return
 
-        diff_text = self.rfile.read(length).decode(errors="replace")
+        body = self.rfile.read(length)
+
+        if self.path == "/evidence":
+            self._handle_evidence(body)
+            return
+
+        diff_text = body.decode(errors="replace")
         if not diff_text.strip():
             self._send_json(400, {"error": "empty diff"})
             return
@@ -76,6 +83,36 @@ class Handler(BaseHTTPRequestHandler):
             diffs_by_path = dict(chunks)
             results = [review_file(p, d, API_KEY) for p, d in chunks]
             report = build_report(results, diffs_by_path)
+        except urllib.error.URLError as e:
+            self._send_json(502, {"error": f"jev gateway error: {e}"})
+            return
+        except Exception as e:
+            self._send_json(500, {"error": str(e)})
+            return
+
+        self._send_json(200, report)
+
+    def _handle_evidence(self, body):
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError:
+            self._send_json(400, {"error": "body must be JSON: {question, text}"})
+            return
+
+        question = payload.get("question")
+        text = payload.get("text")
+        if not question or not text:
+            self._send_json(400, {"error": "missing question or text"})
+            return
+
+        candidates = split_candidates(text)
+        if not candidates:
+            self._send_json(400, {"error": "no candidates in text"})
+            return
+
+        try:
+            results = select_relevant(question, candidates, API_KEY)
+            report = build_evidence_report(question, results)
         except urllib.error.URLError as e:
             self._send_json(502, {"error": f"jev gateway error: {e}"})
             return
