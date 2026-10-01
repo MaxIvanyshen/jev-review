@@ -7,7 +7,7 @@ import unittest
 import urllib.error
 from unittest.mock import patch
 
-import ask_jev_cli as cli
+from cli import ask_jev as cli
 
 
 class FakeResponse:

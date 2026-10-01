@@ -5,19 +5,15 @@ clean files reduced to a one-line verdict. Feed the report to a review
 agent instead of the raw diff.
 
 Usage:
-    git diff | TYPESAFE_API_KEY=... python3 jev_review.py
-    python3 jev_review.py some.patch
+    git diff | TYPESAFE_API_KEY=... python3 -m jevkit.review
+    python3 -m jevkit.review some.patch
 """
 import json
 import os
 import re
 import sys
-import time
-import urllib.error
-import urllib.request
 
-JEV_URL = "https://api.typesafe.ai/v1/systemone"
-JEV_MODEL = "jev-latest"
+from jevkit.jev import ask_jev
 
 QUESTIONS = {
     "needs_review": {
@@ -70,33 +66,6 @@ QUESTIONS = {
 }
 
 FILE_HEADER_RE = re.compile(r"^diff --git a/.* b/(.*)$", re.MULTILINE)
-RETRYABLE_STATUS = {429, 529}
-
-
-def ask_jev(state, questions, api_key, retries=2):
-    """Evaluate one state against a question map. Retries 429/529 with
-    exponential backoff, per the TypeSafe API docs."""
-    body = json.dumps({"model": JEV_MODEL, "state": state, "questions": questions}).encode()
-    last_error = None
-    for attempt in range(retries + 1):
-        req = urllib.request.Request(
-            JEV_URL,
-            data=body,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                return json.load(resp)
-        except urllib.error.HTTPError as e:
-            last_error = e
-            if e.code in RETRYABLE_STATUS and attempt < retries:
-                time.sleep(2**attempt)
-                continue
-            raise
-    raise last_error
-
-
 def split_diff(text):
     """Return [(path, diff_text)]. Falls back to a single whole-diff chunk
     if there are no `diff --git` headers (e.g. plain `diff -u` output)."""

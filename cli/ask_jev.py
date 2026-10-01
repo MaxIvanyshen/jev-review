@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI for the jev-review `/ask` endpoint: ask Jev typed questions (noul,
+"""CLI for the jevkit `/ask` endpoint: ask Jev typed questions (noul,
 choice, score) about files, inline text, or stdin, and print the answers.
 Never echoes file contents — only the resulting judgments.
 

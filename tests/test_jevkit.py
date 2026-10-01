@@ -1,7 +1,9 @@
 import unittest
 
-from jev_review import build_report, is_flagged, parse_stat, split_diff
-from server import MAX_ASK_ITEMS, MAX_ASK_STATE_BYTES, prepare_ask
+from jevkit.review import build_report, is_flagged, parse_stat, split_diff
+from unittest.mock import patch
+
+from jevkit.ask import MAX_ASK_ITEMS, MAX_ASK_STATE_BYTES, AllItemsFailed, prepare_ask, run_ask
 
 SAMPLE = """diff --git a/a.py b/a.py
 index 111..222 100644
@@ -146,6 +148,32 @@ class TestPrepareAsk(unittest.TestCase):
     def test_small_state_not_truncated(self):
         states, _ = self._prepare({"state": "tiny", "questions": QUESTIONS})
         self.assertFalse(states[0]["truncated"])
+
+
+class TestRunAsk(unittest.TestCase):
+    STATES = [
+        {"id": "ok", "state": "good", "truncated": True},
+        {"id": "bad", "state": "boom", "truncated": False},
+    ]
+
+    @staticmethod
+    def fake_jev(state, questions, api_key):
+        if state == "boom":
+            raise RuntimeError("upstream 500")
+        return {"answers": {"q": {"type": "noul", "noul": 0.9}}, "usage": {"input_tokens": 7, "output_tokens": 2}}
+
+    def test_partial_failure_isolated_and_usage_summed(self):
+        with patch("jevkit.ask.ask_jev", self.fake_jev):
+            result = run_ask(self.STATES, QUESTIONS, "key")
+        self.assertEqual(result["answers"]["bad"], {"error": "upstream 500"})
+        self.assertEqual(result["answers"]["ok"]["q"]["noul"], 0.9)
+        self.assertTrue(result["answers"]["ok"]["_state_truncated"])
+        self.assertEqual(result["usage"], {"input_tokens": 7, "output_tokens": 2})
+
+    def test_all_failed_raises(self):
+        with patch("jevkit.ask.ask_jev", self.fake_jev):
+            with self.assertRaises(AllItemsFailed):
+                run_ask([self.STATES[1]], QUESTIONS, "key")
 
 
 if __name__ == "__main__":

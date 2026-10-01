@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 
 WORKDIR /app
-COPY jev_review.py server.py ./
+COPY jevkit/ ./jevkit/
 
 EXPOSE 8787
-CMD ["python3", "server.py"]
+CMD ["python3", "-m", "jevkit.server"]

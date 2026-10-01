@@ -75,7 +75,7 @@ server by default; if it's been switched on, pass `--key` or set
 
 ## Source
 
-`jev_client.py` and `jev_review.py` in this repo
-(github.com/MaxIvanyshen/jev-review). `jev_review.py` is the triage logic
-itself (per-file split, the fixed rubric sent to Jev, the flagging rule);
-`server.py` is the HTTP wrapper this CLI talks to.
+github.com/MaxIvanyshen/jevkit: `cli/jev_review.py` is this CLI;
+`jevkit/review.py` is the triage logic itself (per-file split, the fixed
+rubric sent to Jev, the flagging rule); `jevkit/server.py` is the HTTP
+server it talks to.

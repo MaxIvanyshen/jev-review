@@ -55,7 +55,7 @@ fall back explicitly to search/read; never claim a Jev call that didn't run.
 
 ## Installation and config
 
-Run `install.sh` from github.com/MaxIvanyshen/jev-review; it installs
+Run `install.sh` from github.com/MaxIvanyshen/jevkit; it installs
 `~/.local/bin/ask-jev`. Use that absolute path if it isn't on PATH.
 Default endpoint: `https://gerry.gobeep.xyz:8790/ask`.
 Override with `--url` or `JEV_ASK_URL`. Optional homelab auth:
