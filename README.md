@@ -59,7 +59,8 @@ curl -X POST https://gerry.gobeep.xyz:8790/ask \
 ```
 
 Batch mode swaps `state` for `items: [{"id": "a.py", "state": "..."}, ...]`.
-States are clipped at 200KB (flagged `_state_truncated`). Response:
+States are clipped at 200KB, then halved until they fit Jev's 32k-token
+limit; either way the item is flagged `_state_truncated`. Response:
 `{"answers": {"<id>": {...}}, "usage": {"input_tokens": N, "output_tokens": N}}`.
 A failed item gets `{"error": "..."}`; if every item fails, 502. Full schemas:
 [docs.typesafe.ai/api](https://docs.typesafe.ai/api).

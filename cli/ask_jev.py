@@ -310,7 +310,7 @@ def print_human(report):
                     continue
                 print(format_answer(name, ans))
         if f["truncated"]:
-            print("  (truncated: state clipped to 200KiB)")
+            print("  (truncated: only the start of the input was evaluated)")
     for s in report["skipped"]:
         print(f"skipped: {s['path']} ({s['reason']})")
     u = report["usage"]

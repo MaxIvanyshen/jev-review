@@ -374,7 +374,7 @@ export default function askJevExtension(pi: ExtensionAPI) {
 					.map(([name, a]) => renderAnswer(name, a))
 					.join(" | ");
 				lines.push(
-					`${item.id} — ${rendered}${item.truncated ? " [state truncated at 200KB]" : ""}`,
+					`${item.id} — ${rendered}${item.truncated ? " [truncated: only the start was evaluated]" : ""}`,
 				);
 			}
 			for (const s of skipped) {

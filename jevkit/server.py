@@ -19,6 +19,7 @@ import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from jevkit.ask import AllItemsFailed, prepare_ask, run_ask
+from jevkit.jev import JevError
 from jevkit.review import build_report, review_file, split_diff
 
 API_KEY = os.environ.get("TYPESAFE_API_KEY")
@@ -94,7 +95,7 @@ class Handler(BaseHTTPRequestHandler):
             diffs_by_path = dict(chunks)
             results = [review_file(p, d, API_KEY) for p, d in chunks]
             report = build_report(results, diffs_by_path)
-        except urllib.error.URLError as e:
+        except (urllib.error.URLError, JevError) as e:
             self._send_json(502, {"error": f"jev gateway error: {e}"})
             return
         except Exception as e:

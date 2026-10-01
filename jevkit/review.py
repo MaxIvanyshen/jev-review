@@ -95,7 +95,8 @@ def is_flagged(answers):
 
 
 def review_file(path, diff_text, api_key):
-    answers = ask_jev(diff_text, QUESTIONS, api_key)["answers"]
+    resp = ask_jev(diff_text, QUESTIONS, api_key)
+    answers = resp["answers"]
     additions, deletions = parse_stat(diff_text)
     return {
         "path": path,
@@ -103,6 +104,7 @@ def review_file(path, diff_text, api_key):
         "deletions": deletions,
         "jev": answers,
         "flagged": is_flagged(answers),
+        "truncated": bool(resp.get("state_truncated")),
     }
 
 

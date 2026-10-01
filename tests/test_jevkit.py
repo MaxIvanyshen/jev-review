@@ -1,8 +1,12 @@
+import io
+import json
 import unittest
+import urllib.error
 
 from jevkit.review import build_report, is_flagged, parse_stat, split_diff
 from unittest.mock import patch
 
+from jevkit.jev import JevError, ask_jev
 from jevkit.ask import MAX_ASK_ITEMS, MAX_ASK_STATE_BYTES, AllItemsFailed, prepare_ask, run_ask
 
 SAMPLE = """diff --git a/a.py b/a.py
@@ -174,6 +178,38 @@ class TestRunAsk(unittest.TestCase):
         with patch("jevkit.ask.ask_jev", self.fake_jev):
             with self.assertRaises(AllItemsFailed):
                 run_ask([self.STATES[1]], QUESTIONS, "key")
+
+
+class TestAskJev(unittest.TestCase):
+    @staticmethod
+    def fake_urlopen(limit, sent):
+        def urlopen(req, timeout=None):
+            state = json.loads(req.data)["state"]
+            sent.append(len(state))
+            if len(state) > limit:
+                body = io.BytesIO(b'{"detail":{"error_type":"max_tokens_exceeded"}}')
+                raise urllib.error.HTTPError(req.full_url, 400, "Bad Request", {}, body)
+            return io.BytesIO(json.dumps({"answers": {"q": {"type": "noul", "noul": 0.5}}}).encode())
+        return urlopen
+
+    def test_oversized_state_halved_until_it_fits(self):
+        sent = []
+        with patch("urllib.request.urlopen", self.fake_urlopen(10_000, sent)):
+            resp = ask_jev("x" * 40_000, QUESTIONS, "key")
+        self.assertEqual(sent, [40_000, 20_000, 10_000])
+        self.assertTrue(resp["state_truncated"])
+
+    def test_fitting_state_not_marked_truncated(self):
+        with patch("urllib.request.urlopen", self.fake_urlopen(10_000, [])):
+            resp = ask_jev("x" * 100, QUESTIONS, "key")
+        self.assertNotIn("state_truncated", resp)
+
+    def test_other_errors_keep_typesafe_detail(self):
+        def urlopen(req, timeout=None):
+            raise urllib.error.HTTPError(req.full_url, 422, "Unprocessable", {}, io.BytesIO(b'{"detail":"bad question"}'))
+        with patch("urllib.request.urlopen", urlopen):
+            with self.assertRaisesRegex(JevError, "HTTP 422: .*bad question"):
+                ask_jev("x", QUESTIONS, "key")
 
 
 if __name__ == "__main__":

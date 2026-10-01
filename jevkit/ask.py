@@ -81,7 +81,7 @@ def run_ask(states, questions, api_key):
             usage = resp.get("usage")
             if not isinstance(usage, dict):
                 usage = {}
-            return {"answers": answers, "usage": usage}
+            return {"answers": answers, "usage": usage, "truncated": bool(resp.get("state_truncated"))}
         except Exception as e:
             return {"error": str(e)}
 
@@ -112,7 +112,7 @@ def run_ask(states, questions, api_key):
                 usage[k] += int(r["usage"].get(k, 0))
             except (TypeError, ValueError):
                 pass
-        if sid in truncated_ids:
+        if sid in truncated_ids or r["truncated"]:
             answers[sid]["_state_truncated"] = True
 
     return {"answers": answers, "usage": usage}
