@@ -118,6 +118,31 @@ class TestQuestionArgument(unittest.TestCase):
         self.assertEqual(sent, [])
 
 
+class TestPrivateFlag(unittest.TestCase):
+    def sent_private(self, argv, env=None):
+        opener = fake_urlopen(echo_handler)
+        with patch.dict(os.environ, env or {}, clear=False), patch("urllib.request.urlopen", opener):
+            if not env:
+                os.environ.pop("JEV_ASK_PRIVATE", None)
+            code, out, err = run_main(argv)
+        self.assertEqual(code, 0, err)
+        return json.loads(opener.calls[0][0].data)["private"], out
+
+    def test_default_is_not_private(self):
+        private, out = self.sent_private(["q?", "--text", "x"])
+        self.assertIs(private, False)
+        self.assertIn("(jev)", out)
+
+    def test_private_flag(self):
+        private, out = self.sent_private(["q?", "--text", "x", "--private"])
+        self.assertIs(private, True)
+        self.assertIn("private: homelab Kev", out)
+
+    def test_env_makes_private_the_default(self):
+        private, _ = self.sent_private(["q?", "--text", "x"], {"JEV_ASK_PRIVATE": "1"})
+        self.assertIs(private, True)
+
+
 class TestBasicFlow(unittest.TestCase):
     def test_single_text_question_json_report(self):
         with patch("urllib.request.urlopen", fake_urlopen(echo_handler)):

@@ -7,7 +7,8 @@ Endpoints:
     POST /review         -> body is a raw diff, response is the JSON report
     POST /ask            -> body is {"state"|"items", "questions"}: ask Jev
                             typed questions (noul/choice/score) about one
-                            state or a batch of states, answers keyed by id
+                            state or a batch of states, answers keyed by id;
+                            "private": true answers with homelab Kev instead
 
 If JEV_ACCESS_KEY (or legacy JEV_REVIEW_ACCESS_KEY) is set, POST endpoints
 require `Authorization: Bearer <key>`.
@@ -122,7 +123,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         try:
-            result = run_ask(states, questions, API_KEY)
+            result = run_ask(states, questions, API_KEY, private=payload.get("private", False))
         except AllItemsFailed as e:
             self._send_json(502, {"error": f"jev gateway error: {e}"})
             return

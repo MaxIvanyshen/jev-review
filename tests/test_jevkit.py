@@ -6,7 +6,7 @@ import urllib.error
 from jevkit.review import build_report, is_flagged, parse_stat, split_diff
 from unittest.mock import patch
 
-from jevkit.jev import JevError, ask_jev
+from jevkit.jev import KEV_MAX_STATE_CHARS, JevError, ask_jev, ask_kev
 from jevkit.ask import MAX_ASK_ITEMS, MAX_ASK_STATE_BYTES, AllItemsFailed, prepare_ask, run_ask
 
 SAMPLE = """diff --git a/a.py b/a.py
@@ -210,6 +210,35 @@ class TestAskJev(unittest.TestCase):
         with patch("urllib.request.urlopen", urlopen):
             with self.assertRaisesRegex(JevError, "HTTP 422: .*bad question"):
                 ask_jev("x", QUESTIONS, "key")
+
+
+class TestPrivate(unittest.TestCase):
+    def test_non_bool_private_rejected(self):
+        for bad in ("yes", "true", 1, None):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                prepare_ask({"state": "x", "questions": QUESTIONS, "private": bad})
+
+    def test_private_routes_to_kev_only(self):
+        def no_jev(*a, **k):
+            raise AssertionError("private request reached TypeSafe")
+        kev = lambda state, questions: {"answers": {"q": {"type": "noul", "noul": 0.7}}}
+        with patch("jevkit.ask.ask_jev", no_jev), patch("jevkit.ask.ask_kev", kev):
+            result = run_ask([{"id": "a", "state": "x", "truncated": False}], QUESTIONS, "key", private=True)
+        self.assertEqual(result["answers"]["a"]["q"]["noul"], 0.7)
+
+    def test_kev_clips_long_state_and_flags_it(self):
+        sent = []
+        def urlopen(req, timeout=None):
+            body = json.loads(req.data)
+            sent.append((req.full_url, body["model"], len(body["state"]), req.get_header("Authorization")))
+            return io.BytesIO(json.dumps({"answers": {"q": {"type": "noul", "noul": 0.5}}}).encode())
+        with patch("urllib.request.urlopen", urlopen):
+            long_resp = ask_kev("x" * (KEV_MAX_STATE_CHARS + 10), QUESTIONS)
+            short_resp = ask_kev("x" * 10, QUESTIONS)
+        self.assertEqual(sent[0][1:], ("kev-latest", KEV_MAX_STATE_CHARS, None))
+        self.assertIn("kev", sent[0][0])
+        self.assertTrue(long_resp["state_truncated"])
+        self.assertNotIn("state_truncated", short_resp)
 
 
 if __name__ == "__main__":

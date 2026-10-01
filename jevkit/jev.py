@@ -1,5 +1,7 @@
-"""TypeSafe client: evaluate a state against typed questions with Jev."""
+"""Evaluate a state against typed questions: Jev via TypeSafe, or Kev
+(open-weight, same System One API) on the homelab for private requests."""
 import json
+import os
 import time
 import urllib.error
 import urllib.request
@@ -13,21 +15,36 @@ RETRYABLE_STATUS = {429, 529}
 MAX_HALVINGS = 6
 MIN_STATE_CHARS = 1000
 
+KEV_URL = os.environ.get("KEV_URL", "http://kev:8009/v1/systemone")
+# ponytail: Kev-0.8B is validated to ~8k tokens and only refuses past 65k, so
+# clip up front instead of letting accuracy degrade silently on long files.
+KEV_MAX_STATE_CHARS = 32_000
+
 
 class JevError(Exception):
     pass
 
 
-def _post(state, questions, api_key):
-    body = json.dumps({"model": JEV_MODEL, "state": state, "questions": questions}).encode()
-    req = urllib.request.Request(
-        JEV_URL,
-        data=body,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=30) as resp:
+def _post(state, questions, api_key, url=JEV_URL, model=JEV_MODEL, timeout=30):
+    body = json.dumps({"model": model, "state": state, "questions": questions}).encode()
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.load(resp)
+
+
+def ask_kev(state, questions):
+    """Evaluate on the homelab Kev server: nothing leaves the homelab.
+    Long states are clipped and the response gets "state_truncated": True."""
+    try:
+        resp = _post(state[:KEV_MAX_STATE_CHARS], questions, None, KEV_URL, "kev-latest", timeout=120)
+    except urllib.error.HTTPError as e:
+        raise JevError(f"kev HTTP {e.code}: {e.read().decode(errors='replace')[:300]}") from e
+    if len(state) > KEV_MAX_STATE_CHARS:
+        resp["state_truncated"] = True
+    return resp
 
 
 def ask_jev(state, questions, api_key, retries=2):

@@ -49,6 +49,10 @@ instead of making one command per file. For goal-relative judgments add
 - A nonzero exit means failure or incomplete coverage. Preserve successful results, report what failed/skipped/truncated, and never infer that unchecked files are clean.
 - Read source afterward only for exact evidence, implementation details or editing. Jev's judgments are not verified facts or security guarantees.
 
+For code that must not leave your network (e.g. work code), add `--private`
+(Pi tool: `private: true`): answered by Kev on the homelab instead of TypeSafe,
+~2s per file. `JEV_ASK_PRIVATE=1` makes private the default.
+
 If Pi's native `ask_jev` tool is available, use it directly with the same
 question types and file/glob inputs. If neither the tool nor CLI works,
 fall back explicitly to search/read; never claim a Jev call that didn't run.

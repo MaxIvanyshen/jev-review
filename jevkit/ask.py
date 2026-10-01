@@ -3,7 +3,7 @@ map (noul/choice/score), fanned out over a process-wide worker pool."""
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 
-from jevkit.jev import ask_jev
+from jevkit.jev import ask_jev, ask_kev
 
 MAX_ASK_ITEMS = 100
 MAX_ASK_STATE_BYTES = 200 * 1024  # per state, in UTF-8 bytes
@@ -15,6 +15,9 @@ QUESTION_TYPES = {"noul", "choice", "score"}
 # One pool for the whole process: a burst of /ask requests queues instead of
 # multiplying concurrent upstream calls (each of which can retry on 429/529).
 EXECUTOR = ThreadPoolExecutor(max_workers=UPSTREAM_WORKERS)
+# ponytail: CPU Kev runs one request at a time (more in flight measured no
+# faster), so 2 workers keep it busy without private batches taking Jev's pool.
+KEV_EXECUTOR = ThreadPoolExecutor(max_workers=2)
 
 
 class AllItemsFailed(Exception):
@@ -30,6 +33,9 @@ def prepare_ask(payload):
     """
     if not isinstance(payload, dict):
         raise ValueError("body must be a JSON object")
+    # a typo'd "private" must not silently send content to TypeSafe
+    if not isinstance(payload.get("private", False), bool):
+        raise ValueError("private must be true or false")
 
     questions = payload.get("questions")
     if not isinstance(questions, dict) or not questions:
@@ -68,13 +74,13 @@ def prepare_ask(payload):
     return states, questions
 
 
-def run_ask(states, questions, api_key):
+def run_ask(states, questions, api_key, private=False):
     """Evaluate every state and return {"answers", "usage"}. Per-item
     failures become {"error": ...}; raises AllItemsFailed if none succeed."""
 
     def evaluate(s):
         try:
-            resp = ask_jev(s["state"], questions, api_key)
+            resp = ask_kev(s["state"], questions) if private else ask_jev(s["state"], questions, api_key)
             answers = resp.get("answers") if isinstance(resp, dict) else None
             if not isinstance(answers, dict):
                 raise ValueError("jev returned no answers")
@@ -85,7 +91,8 @@ def run_ask(states, questions, api_key):
         except Exception as e:
             return {"error": str(e)}
 
-    futures = [(s, EXECUTOR.submit(evaluate, s)) for s in states]
+    pool = KEV_EXECUTOR if private else EXECUTOR
+    futures = [(s, pool.submit(evaluate, s)) for s in states]
     results = {}
     for s, fut in futures:
         try:

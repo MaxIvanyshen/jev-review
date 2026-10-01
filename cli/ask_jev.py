@@ -214,11 +214,12 @@ def load_questions_file(path):
 # --- server call --------------------------------------------------------------
 
 
-def post_batch(url, key, timeout, items, questions):
+def post_batch(url, key, timeout, items, questions, private=False):
     body = json.dumps(
         {
             "items": [{"id": it["id"], "state": it["state"]} for it in items],
             "questions": questions,
+            "private": private,
         }
     ).encode()
     headers = {"Content-Type": "application/json"}
@@ -242,14 +243,14 @@ def post_batch(url, key, timeout, items, questions):
     return parsed, None
 
 
-def run_batches(url, key, timeout, items, questions):
+def run_batches(url, key, timeout, items, questions, private=False):
     files = []
     usage = {"input_tokens": 0, "output_tokens": 0}
     question_names = set(questions)
 
     for start in range(0, len(items), MAX_ITEMS_PER_BATCH):
         batch = items[start : start + MAX_ITEMS_PER_BATCH]
-        parsed, err = post_batch(url, key, timeout, batch, questions)
+        parsed, err = post_batch(url, key, timeout, batch, questions, private)
         if err:
             for it in batch:
                 files.append(
@@ -315,7 +316,8 @@ def print_human(report):
     for s in report["skipped"]:
         print(f"skipped: {s['path']} ({s['reason']})")
     u = report["usage"]
-    print(f"usage: input_tokens={u['input_tokens']} output_tokens={u['output_tokens']}")
+    backend = "private: homelab Kev" if report.get("private") else "jev"
+    print(f"usage: input_tokens={u['input_tokens']} output_tokens={u['output_tokens']} ({backend})")
 
 
 # --- main --------------------------------------------------------------
@@ -339,7 +341,13 @@ def parse_args(argv):
     parser.add_argument("--json", action="store_true", help="print a compact JSON report")
     parser.add_argument("--url", default=DEFAULT_URL, help=f"ask endpoint URL (default: {DEFAULT_URL}, or $JEV_ASK_URL)")
     parser.add_argument("--key", default=os.environ.get("JEV_ASK_ACCESS_KEY"), help="bearer token ($JEV_ASK_ACCESS_KEY)")
-    parser.add_argument("--timeout", type=float, default=180, help="request timeout in seconds (default: 180)")
+    parser.add_argument(
+        "--private",
+        action="store_true",
+        default=os.environ.get("JEV_ASK_PRIVATE") == "1",
+        help="answer with Kev on the homelab instead of TypeSafe; nothing leaves the homelab, slower (default: $JEV_ASK_PRIVATE=1)",
+    )
+    parser.add_argument("--timeout", type=float, default=600, help="request timeout in seconds (default: 600)")
     args = parser.parse_args(argv)
 
     if not args.question and not args.questions:
@@ -408,18 +416,19 @@ def main(argv=None):
     items, skipped = collect_items(args)
 
     if not items:
-        report = {"files": [], "skipped": [{"path": p, "reason": r} for p, r in skipped], "usage": {"input_tokens": 0, "output_tokens": 0}}
+        report = {"files": [], "skipped": [{"path": p, "reason": r} for p, r in skipped], "usage": {"input_tokens": 0, "output_tokens": 0}, "private": args.private}
         if args.json:
             print(json.dumps(report, separators=(",", ":")))
         else:
             print_human(report)
         sys.exit(1)
 
-    files, usage = run_batches(args.url, args.key, args.timeout, items, questions)
+    files, usage = run_batches(args.url, args.key, args.timeout, items, questions, args.private)
     report = {
         "files": files,
         "skipped": [{"path": p, "reason": r} for p, r in skipped],
         "usage": usage,
+        "private": args.private,
     }
 
     if args.json:

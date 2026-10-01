@@ -90,6 +90,12 @@ const Params = Type.Object({
 	context: Type.Optional(
 		Type.String({ description: "task goal, prepended to every state so answers stay goal-relative" }),
 	),
+	private: Type.Optional(
+		Type.Boolean({
+			description:
+				"answer with Kev on the homelab instead of TypeSafe so content never leaves it; slower (~2s/file). Defaults to $JEV_ASK_PRIVATE=1",
+		}),
+	),
 });
 
 export function globToRegex(pattern: string): RegExp {
@@ -220,14 +226,19 @@ function readFiles(paths: string[], context: string | undefined): { items: Item[
 	return { items, skipped };
 }
 
-async function askServer(items: Item[], questions: unknown, signal?: AbortSignal): Promise<AskResponse> {
+async function askServer(
+	items: Item[],
+	questions: unknown,
+	privateMode: boolean,
+	signal?: AbortSignal,
+): Promise<AskResponse> {
 	const headers: Record<string, string> = { "Content-Type": "application/json" };
 	if (JEV_ASK_ACCESS_KEY) headers.Authorization = `Bearer ${JEV_ASK_ACCESS_KEY}`;
-	const timeout = AbortSignal.timeout(180_000);
+	const timeout = AbortSignal.timeout(600_000);
 	const res = await fetch(JEV_ASK_URL, {
 		method: "POST",
 		headers,
-		body: JSON.stringify({ items, questions }),
+		body: JSON.stringify({ items: items.map(({ id, state }) => ({ id, state })), questions, private: privateMode }),
 		signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
 	});
 	if (!res.ok) {
@@ -316,12 +327,13 @@ export default function askJevExtension(pi: ExtensionAPI) {
 				items = [{ id: "state", state, truncated: false }];
 			}
 
+			const privateMode = params.private ?? process.env.JEV_ASK_PRIVATE === "1";
 			const batches: Item[][] = [];
 			for (let i = 0; i < items.length; i += SERVER_BATCH) {
 				batches.push(items.slice(i, i + SERVER_BATCH));
 			}
 			const settled = await Promise.allSettled(
-				batches.map((b) => askServer(b, params.questions, signal)),
+				batches.map((b) => askServer(b, params.questions, privateMode, signal)),
 			);
 			const batchErrors: { batch: Item[]; message: string }[] = [];
 			const responses: AskResponse[] = [];
@@ -358,7 +370,7 @@ export default function askJevExtension(pi: ExtensionAPI) {
 			lines.push(
 				`${items.length} item${items.length === 1 ? "" : "s"} asked${
 					skipped.length ? `, ${skipped.length} skipped` : ""
-				} — jev ${new URL(JEV_ASK_URL).host}`,
+				} — ${privateMode ? "private: homelab Kev via" : "jev"} ${new URL(JEV_ASK_URL).host}`,
 			);
 			for (const item of items) {
 				const itemAnswers = answers[item.id];

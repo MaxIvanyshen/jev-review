@@ -59,6 +59,10 @@ curl -X POST https://gerry.gobeep.xyz:8790/ask \
 ```
 
 Batch mode swaps `state` for `items: [{"id": "a.py", "state": "..."}, ...]`.
+`"private": true` answers with [Kev-0.8B](https://github.com/jaredpalmer/kev)
+on the homelab instead of TypeSafe (same API, open weights): nothing leaves the
+homelab, but it runs on CPU at ~2.3s per item and clips states to 32K chars
+(`KEV_URL`, default `http://kev:8009/v1/systemone`).
 States are clipped at 200KB, then halved until they fit Jev's 32k-token
 limit; either way the item is flagged `_state_truncated`. Response:
 `{"answers": {"<id>": {...}}, "usage": {"input_tokens": N, "output_tokens": N}}`.
@@ -113,7 +117,8 @@ ask-jev --questions questions.json --json 'src/**/*.go'
 
 The question can also be passed as `-q/--question`. `questions.json` is a
 question map like the `/ask` example above (all positionals are then paths).
-`--context` adds a task goal; `--url` / `JEV_ASK_URL` and `--key` /
+`--private` (or `JEV_ASK_PRIVATE=1` as the default) keeps content on the
+homelab via Kev. `--context` adds a task goal; `--url` / `JEV_ASK_URL` and `--key` /
 `JEV_ASK_ACCESS_KEY` point at another instance. A nonzero exit means
 incomplete or failed classification — not that every file was clean.
 
