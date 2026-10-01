@@ -103,6 +103,53 @@ Points at `$JEV_REVIEW_URL` (default: this homelab's public endpoint) and
 sends `$JEV_REVIEW_ACCESS_KEY` as a Bearer token if the server has auth
 enabled. `jev_client.py --help` for all flags.
 
+## Ask Jev CLI
+
+`ask-jev` reads files locally, asks the homelab classifier about them, and
+prints only answers — not the file contents. Requires Python 3, no extra
+packages or client-side TypeSafe key. Install with `./install.sh`.
+
+```bash
+# One yes/no question across files; quote globs so the CLI expands them.
+ask-jev --question 'Does this file contain TODO or FIXME comments?' 'src/**/*.py'
+
+# A single snippet, or piped text.
+ask-jev --question 'Does this contain a hardcoded credential?' --text 'password = "demo"'
+printf '%s\n' 'TODO: write tests' | ask-jev --question 'Does this contain a TODO?'
+
+# Agents can request JSON; use a question map for categories or scores.
+ask-jev --questions questions.json --json 'src/**/*.go'
+```
+
+Example `questions.json`:
+
+```json
+{
+  "role": {
+    "type": "choice",
+    "instructions": "What is this file's primary role?",
+    "criteria": {"implementation": "Production code", "tests": "Automated tests", "other": "Neither"}
+  },
+  "complexity": {
+    "type": "score",
+    "instructions": "Rate this file's complexity.",
+    "criteria": ["Trivial", "Simple", "Moderate", "Complex"]
+  }
+}
+```
+
+`--context` supplies a task goal. `--url` / `JEV_ASK_URL` override the
+homelab URL; `--key` / `JEV_ASK_ACCESS_KEY` provide optional server auth.
+Prefer the environment variable for credentials to keep them out of shell
+history. Human output includes probabilities, skipped files and truncation
+warnings. JSON output preserves per-file answers/errors and token usage;
+nonzero exit status means the classification was incomplete or failed,
+not that every file was clean. See `ask-jev --help` for limits and options.
+
+**Privacy:** file contents leave your machine and go through the homelab to
+TypeSafe. Use only for code/text you are permitted to send to that service.
+Classifications are scouting signals; inspect source for exact evidence.
+
 ## Ask Jev (generic endpoint)
 
 `POST /ask` with a state (or batch of states) and a map of typed
@@ -149,10 +196,17 @@ probability-weighted value that can land between levels).
 ./install.sh
 ```
 
-Copies `jev_client.py` to `~/.local/bin/jev-review` (executable). Re-run
-it after pulling changes — it's a plain copy, not a symlink.
+Installs `jev_client.py` as `~/.local/bin/jev-review` and
+`ask_jev_cli.py` as `~/.local/bin/ask-jev`. Re-run after pulling changes —
+these are plain copies, not symlinks. Ensure `~/.local/bin` is on PATH.
 
 ## Agent skill
+
+`skills/ask-jev/SKILL.md` teaches classification-first use of the portable
+CLI. Install it in your agent's skill directory (such as
+`~/.claude/skills/ask-jev/` or `~/.agents/skills/ask-jev/`). Claude Code can
+use it through Bash — no MCP server required. Pi can keep using its native
+`ask_jev` tool against the same homelab endpoint.
 
 `skills/jev-review/SKILL.md` teaches a coding agent when and how to call
 this (triage before a deep manual review, not a substitute for one) and
@@ -181,5 +235,5 @@ this prompt to whichever agent you're using and let it install itself:
 ## Tests
 
 ```bash
-python3 -m unittest test_jev_review.py -v
+python3 -m unittest discover -v
 ```
