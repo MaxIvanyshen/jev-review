@@ -103,6 +103,46 @@ Points at `$JEV_REVIEW_URL` (default: this homelab's public endpoint) and
 sends `$JEV_REVIEW_ACCESS_KEY` as a Bearer token if the server has auth
 enabled. `jev_client.py --help` for all flags.
 
+## Ask Jev (generic endpoint)
+
+`POST /ask` with a state (or batch of states) and a map of typed
+questions; the server fans a batch out to Jev in parallel and returns
+answers keyed by id:
+
+```bash
+curl -X POST https://gerry.gobeep.xyz:8790/ask \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "state": "def f(a, b): return a + b  # TODO: overflow",
+    "questions": {
+      "has_todo":   {"type": "noul",   "instructions": "Does this code contain a TODO or FIXME?"},
+      "language":   {"type": "choice", "instructions": "What language is this?",
+                       "criteria": {"python": "python", "js": "javascript", "other": "neither"}},
+      "complexity": {"type": "score",  "instructions": "Rate the complexity.",
+                       "criteria": ["Trivial", "Simple", "Moderate", "Complex"]}
+    }
+  }'
+```
+
+Batch mode swaps `state` for `items` (same questions for every item, up
+to 100, states truncated at 200KB):
+
+```json
+{
+  "items": [{"id": "a.py", "state": "..."}, {"id": "b.py", "state": "..."}],
+  "questions": {"...": "..."}
+}
+```
+
+Response: `{"answers": {"<id>": {"has_todo": {"type": "noul", "noul": 1.0}, "...": "..."}},
+"usage": {"input_tokens": 400, "output_tokens": 72}}`. An item that
+fails at the gateway gets `{"error": "..."}` instead of answers; if
+every item fails the whole request returns 502. See
+[docs.typesafe.ai/api](https://docs.typesafe.ai/api) for the full question
+and answer schemas (noul returns a 0-1 probability; choice returns the
+picked option plus a full probability distribution; score returns a
+probability-weighted value that can land between levels).
+
 ## Install (CLI)
 
 ```bash
