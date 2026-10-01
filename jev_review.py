@@ -5,20 +5,23 @@ clean files reduced to a one-line verdict. Feed the report to a review
 agent instead of the raw diff.
 
 Usage:
-    git diff | AI_GATEWAY_API_KEY=... python3 jev_review.py
+    git diff | TYPESAFE_API_KEY=... python3 jev_review.py
     python3 jev_review.py some.patch
 """
 import json
 import os
 import re
 import sys
+import time
+import urllib.error
 import urllib.request
 
-JEV_URL = "https://ai-gateway.vercel.sh/v1/evaluate"
+JEV_URL = "https://api.typesafe.ai/v1/systemone"
+JEV_MODEL = "jev-latest"
 
 QUESTIONS = {
     "needs_review": {
-        "type": "boolean",
+        "type": "noul",
         "instructions": (
             "Does this diff contain changes that need careful review "
             "(logic changes, security-sensitive code, non-trivial refactors)? "
@@ -51,14 +54,14 @@ QUESTIONS = {
         },
     },
     "security_concern": {
-        "type": "boolean",
+        "type": "noul",
         "instructions": (
             "Does this diff touch authentication, authorization, secrets, "
             "input validation, or otherwise have a plausible security implication?"
         ),
     },
     "missing_tests": {
-        "type": "boolean",
+        "type": "noul",
         "instructions": (
             "Does this diff change logic/behavior without any corresponding "
             "test changes in the same diff?"
@@ -67,17 +70,31 @@ QUESTIONS = {
 }
 
 FILE_HEADER_RE = re.compile(r"^diff --git a/.* b/(.*)$", re.MULTILINE)
+RETRYABLE_STATUS = {429, 529}
 
 
-def ask_jev(state, questions, api_key):
-    req = urllib.request.Request(
-        JEV_URL,
-        data=json.dumps({"model": "typesafe-ai/jev", "state": state, "questions": questions}).encode(),
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.load(resp)
+def ask_jev(state, questions, api_key, retries=2):
+    """Evaluate one state against a question map. Retries 429/529 with
+    exponential backoff, per the TypeSafe API docs."""
+    body = json.dumps({"model": JEV_MODEL, "state": state, "questions": questions}).encode()
+    last_error = None
+    for attempt in range(retries + 1):
+        req = urllib.request.Request(
+            JEV_URL,
+            data=body,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return json.load(resp)
+        except urllib.error.HTTPError as e:
+            last_error = e
+            if e.code in RETRYABLE_STATUS and attempt < retries:
+                time.sleep(2**attempt)
+                continue
+            raise
+    raise last_error
 
 
 def split_diff(text):
@@ -102,8 +119,8 @@ def parse_stat(diff_text):
 
 def is_flagged(answers):
     return (
-        answers["needs_review"]["probability"] >= 0.5
-        or answers["security_concern"]["probability"] >= 0.5
+        answers["needs_review"]["noul"] >= 0.5
+        or answers["security_concern"]["noul"] >= 0.5
         or answers["risk"]["score"] >= 2
     )
 
@@ -134,9 +151,9 @@ def build_report(results, diffs_by_path):
 
 
 def main():
-    api_key = os.environ.get("AI_GATEWAY_API_KEY")
+    api_key = os.environ.get("TYPESAFE_API_KEY")
     if not api_key:
-        sys.exit("AI_GATEWAY_API_KEY not set")
+        sys.exit("TYPESAFE_API_KEY not set")
 
     text = open(sys.argv[1]).read() if len(sys.argv) > 1 else sys.stdin.read()
     if not text.strip():

@@ -43,9 +43,9 @@ class TestParseStat(unittest.TestCase):
 class TestFlagging(unittest.TestCase):
     def _answers(self, needs_review=0.0, security=0.0, risk=0.0):
         return {
-            "needs_review": {"probability": needs_review},
-            "security_concern": {"probability": security},
-            "risk": {"score": risk},
+            "needs_review": {"type": "noul", "noul": needs_review},
+            "security_concern": {"type": "noul", "noul": security},
+            "risk": {"type": "score", "score": risk},
         }
 
     def test_flags_on_needs_review(self):

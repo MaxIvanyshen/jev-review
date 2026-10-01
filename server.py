@@ -18,14 +18,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from jev_review import build_report, review_file, split_diff
 
-API_KEY = os.environ.get("AI_GATEWAY_API_KEY")
-ACCESS_KEY = os.environ.get("JEV_REVIEW_ACCESS_KEY")
+API_KEY = os.environ.get("TYPESAFE_API_KEY")
+ACCESS_KEY = os.environ.get("JEV_ACCESS_KEY") or os.environ.get("JEV_REVIEW_ACCESS_KEY")
 PORT = int(os.environ.get("PORT", "8787"))
 MAX_BODY_BYTES = 10 * 1024 * 1024  # 10MB, generous for a diff
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "jev-review/1.0"
+    server_version = "jev-review/1.1"
 
     def log_message(self, fmt, *args):
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
