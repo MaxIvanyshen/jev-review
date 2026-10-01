@@ -99,18 +99,20 @@ TypeSafe key needed.
 ### ask-jev
 
 ```bash
-# One yes/no question across files; quote globs so the CLI expands them.
-ask-jev --question 'Does this file contain TODO or FIXME comments?' 'src/**/*.py'
+# Question first, then files/globs (quote globs so the CLI expands them).
+ask-jev 'Is this good?' ./src/code.c
+ask-jev 'Does this file contain TODO or FIXME comments?' 'src/**/*.py'
 
 # Inline text or stdin.
-ask-jev --question 'Does this contain a hardcoded credential?' --text 'password = "demo"'
-printf '%s\n' 'TODO: write tests' | ask-jev --question 'Does this contain a TODO?'
+ask-jev 'Does this contain a hardcoded credential?' --text 'password = "demo"'
+printf '%s\n' 'TODO: write tests' | ask-jev 'Does this contain a TODO?'
 
 # Typed question map (choice/score), JSON for agents.
 ask-jev --questions questions.json --json 'src/**/*.go'
 ```
 
-`questions.json` is a question map like the `/ask` example above.
+The question can also be passed as `-q/--question`. `questions.json` is a
+question map like the `/ask` example above (all positionals are then paths).
 `--context` adds a task goal; `--url` / `JEV_ASK_URL` and `--key` /
 `JEV_ASK_ACCESS_KEY` point at another instance. A nonzero exit means
 incomplete or failed classification — not that every file was clean.

@@ -4,10 +4,11 @@ choice, score) about files, inline text, or stdin, and print the answers.
 Never echoes file contents — only the resulting judgments.
 
 Usage:
-    ask-jev --question 'Does this file contain a TODO?' 'src/**/*.py'
+    ask-jev 'Does this file contain a TODO?' 'src/**/*.py'
+    ask-jev -q 'Does this file contain a TODO?' 'src/**/*.py'
     ask-jev --questions questions.json src/foo.py src/bar.py
-    git diff | ask-jev --question 'Is this diff risky?'
-    ask-jev --text 'some code' --question 'Does this use eval()?'
+    git diff | ask-jev 'Is this diff risky?'
+    ask-jev --text 'some code' 'Does this use eval()?'
 
 Environment:
     JEV_ASK_URL          default server URL (else homelab /ask)
@@ -322,12 +323,17 @@ def print_human(report):
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(
-        description="Ask Jev typed questions about files, inline text, or stdin."
+        description="Ask Jev typed questions about files, inline text, or stdin.",
+        usage="ask-jev [options] QUESTION [PATH ...]\n       ask-jev [options] (-q QUESTION | --questions FILE) [PATH ...]",
     )
-    parser.add_argument("paths", nargs="*", help="file paths, directories, or globs (*, ?, **)")
+    parser.add_argument(
+        "paths",
+        nargs="*",
+        help="the yes/no question (unless -q/--questions is given), then file paths, directories, or globs (*, ?, **)",
+    )
     parser.add_argument("--text", help="ask about this inline text instead of files")
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--question", help="a single yes/no question (shorthand for one noul question)")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("-q", "--question", help="a single yes/no question (shorthand for one noul question)")
     group.add_argument("--questions", help="path to a JSON file of typed questions")
     parser.add_argument("--context", help="goal/context prepended to every state")
     parser.add_argument("--json", action="store_true", help="print a compact JSON report")
@@ -336,6 +342,12 @@ def parse_args(argv):
     parser.add_argument("--timeout", type=float, default=180, help="request timeout in seconds (default: 180)")
     args = parser.parse_args(argv)
 
+    if not args.question and not args.questions:
+        if not args.paths:
+            parser.error("a question is required: ask-jev 'Is this ...?' [PATH ...]")
+        args.question = args.paths.pop(0)
+        if os.path.exists(args.question):
+            parser.error(f"{args.question!r} is a path, not a question — put the question first")
     if args.timeout <= 0:
         parser.error("--timeout must be positive")
     if args.text is not None and args.paths:

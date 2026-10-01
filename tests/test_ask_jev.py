@@ -79,6 +79,45 @@ def chdir(path):
         os.chdir(old)
 
 
+class TestQuestionArgument(unittest.TestCase):
+    def ask(self, argv):
+        opener = fake_urlopen(echo_handler)
+        with tempfile.TemporaryDirectory() as tmp, chdir(tmp):
+            open("code.c", "w").write("int main(){}")
+            with patch("urllib.request.urlopen", opener):
+                code, out, err = run_main(argv)
+        sent = [json.loads(req.data) for req, _ in opener.calls]
+        return code, out, err, sent
+
+    def test_positional_question_then_paths(self):
+        code, out, err, sent = self.ask(["Is this good?", "./code.c", "--json"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(sent[0]["questions"]["answer"]["instructions"], "Is this good?")
+        self.assertEqual([f["path"] for f in json.loads(out)["files"]], ["code.c"])
+
+    def test_short_q_flag(self):
+        code, out, err, sent = self.ask(["-q", "Is this good?", "code.c"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(sent[0]["questions"]["answer"]["instructions"], "Is this good?")
+
+    def test_positional_question_with_text(self):
+        code, out, err, sent = self.ask(["--text", "x = eval(y)", "Uses eval?"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(sent[0]["questions"]["answer"]["instructions"], "Uses eval?")
+
+    def test_missing_question_is_an_error(self):
+        code, out, err, sent = self.ask([])
+        self.assertNotEqual(code, 0)
+        self.assertIn("a question is required", err)
+        self.assertEqual(sent, [])
+
+    def test_path_in_question_position_is_rejected(self):
+        code, out, err, sent = self.ask(["code.c"])
+        self.assertNotEqual(code, 0)
+        self.assertIn("put the question first", err)
+        self.assertEqual(sent, [])
+
+
 class TestBasicFlow(unittest.TestCase):
     def test_single_text_question_json_report(self):
         with patch("urllib.request.urlopen", fake_urlopen(echo_handler)):
