@@ -134,13 +134,58 @@ class TestPrivateFlag(unittest.TestCase):
         self.assertIn("(jev)", out)
 
     def test_private_flag(self):
-        private, out = self.sent_private(["q?", "--text", "x", "--private"])
+        private, out = self.sent_private(["q?", "--text", "x", "--private", "--private-backend", "homelab"])
         self.assertIs(private, True)
-        self.assertIn("private: homelab Kev", out)
+        self.assertIn("(private: homelab Kev)", out)
 
     def test_env_makes_private_the_default(self):
-        private, _ = self.sent_private(["q?", "--text", "x"], {"JEV_ASK_PRIVATE": "1"})
+        private, _ = self.sent_private(["q?", "--text", "x"], {"JEV_ASK_PRIVATE": "1", "JEV_ASK_PRIVATE_BACKEND": "homelab"})
         self.assertIs(private, True)
+
+
+class TestLocalKev(unittest.TestCase):
+    def handler(self, req):
+        if req.full_url.startswith("http://127.0.0.1:8009"):
+            body = json.loads(req.data)
+            self.local_states.append(body["state"])
+            return json.dumps({"answers": {"answer": {"type": "noul", "noul": 0.8}}, "usage": {"input_tokens": 3, "output_tokens": 1}}).encode()
+        return echo_handler(req)
+
+    def run_private(self, local_up):
+        self.local_states = []
+        def handler(req):
+            if not local_up and req.full_url.startswith("http://127.0.0.1"):
+                return urllib.error.URLError(ConnectionRefusedError(61, "refused"))
+            return self.handler(req)
+        opener = fake_urlopen(handler)
+        with tempfile.TemporaryDirectory() as tmp, chdir(tmp), patch("urllib.request.urlopen", opener), \
+                patch.dict(os.environ, {}, clear=False):
+            for k in ("JEV_ASK_PRIVATE", "JEV_ASK_PRIVATE_BACKEND", "JEV_ASK_KEV_URL"):
+                os.environ.pop(k, None)
+            open("a.py", "w").write("x" * (cli.KEV_MAX_STATE_CHARS + 50))
+            open("b.py", "w").write("y")
+            code, out, err = run_main(["q?", "a.py", "b.py", "--private", "--json"])
+        self.assertEqual(code, 0, err)
+        self.calls = [(req.full_url, req.data) for req, _ in opener.calls]
+        return json.loads(out), [u for u, _ in self.calls]
+
+    def test_local_kev_answers_without_touching_homelab(self):
+        report, urls = self.run_private(local_up=True)
+        self.assertEqual(report["backend"], "private: local Kev")
+        self.assertTrue(all(u.startswith("http://127.0.0.1:8009") for u in urls), urls)
+        self.assertEqual(len(self.local_states), 2)
+        self.assertLessEqual(max(map(len, self.local_states)), cli.KEV_MAX_STATE_CHARS)
+        by_path = {f["path"]: f for f in report["files"]}
+        self.assertTrue(by_path["a.py"]["truncated"])
+        self.assertFalse(by_path["b.py"]["truncated"])
+        self.assertEqual(report["usage"], {"input_tokens": 6, "output_tokens": 2})
+
+    def test_falls_back_to_homelab_when_no_local_kev(self):
+        report, urls = self.run_private(local_up=False)
+        self.assertEqual(report["backend"], "private: homelab Kev (no local Kev running)")
+        homelab = [json.loads(d) for u, d in self.calls if not u.startswith("http://127.0.0.1")]
+        self.assertEqual(len(homelab), 1)
+        self.assertIs(homelab[0]["private"], True)
 
 
 class TestBasicFlow(unittest.TestCase):

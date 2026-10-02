@@ -50,8 +50,9 @@ instead of making one command per file. For goal-relative judgments add
 - Read source afterward only for exact evidence, implementation details or editing. Jev's judgments are not verified facts or security guarantees.
 
 For code that must not leave your network (e.g. work code), add `--private`
-(Pi tool: `private: true`): answered by Kev on the homelab instead of TypeSafe,
-~2s per file. `JEV_ASK_PRIVATE=1` makes private the default.
+(Pi tool: `private: true`): answered by Kev (open-weight) on this machine, or on the homelab if no local
+Kev is running, instead of TypeSafe. Weaker than Jev on questions that need real
+code understanding. `JEV_ASK_PRIVATE=1` makes private the default.
 
 If Pi's native `ask_jev` tool is available, use it directly with the same
 question types and file/glob inputs. If neither the tool nor CLI works,

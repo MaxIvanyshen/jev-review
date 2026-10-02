@@ -117,8 +117,12 @@ ask-jev --questions questions.json --json 'src/**/*.go'
 
 The question can also be passed as `-q/--question`. `questions.json` is a
 question map like the `/ask` example above (all positionals are then paths).
-`--private` (or `JEV_ASK_PRIVATE=1` as the default) keeps content on the
-homelab via Kev. `--context` adds a task goal; `--url` / `JEV_ASK_URL` and `--key` /
+`--private` (or `JEV_ASK_PRIVATE=1` as the default) answers with Kev instead of
+TypeSafe. By default it runs on this machine: `integrations/kev/install-kev.sh`
+sets up Kev-0.8B as a launchd agent on 127.0.0.1:8009 (~0.3–1s/file on an M4,
+~2GB RAM). If no local Kev is running it falls back to the homelab's CPU Kev
+(still private, ~2–8s/file); `--private-backend homelab` or
+`JEV_ASK_PRIVATE_BACKEND=homelab` always uses the homelab. `--context` adds a task goal; `--url` / `JEV_ASK_URL` and `--key` /
 `JEV_ASK_ACCESS_KEY` point at another instance. A nonzero exit means
 incomplete or failed classification — not that every file was clean.
 

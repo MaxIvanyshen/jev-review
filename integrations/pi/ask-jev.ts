@@ -24,6 +24,9 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 
 const JEV_ASK_URL = process.env.JEV_ASK_URL ?? "https://gerry.gobeep.xyz:8790/ask";
 const JEV_ASK_ACCESS_KEY = process.env.JEV_ASK_ACCESS_KEY;
+const JEV_ASK_PRIVATE_BACKEND = process.env.JEV_ASK_PRIVATE_BACKEND ?? "local";
+const JEV_ASK_KEV_URL = process.env.JEV_ASK_KEV_URL ?? "http://127.0.0.1:8009/v1/systemone";
+const KEV_MAX_STATE_CHARS = 32_000; // Kev-0.8B is validated to ~8k tokens; matches jevkit/jev.py
 
 const MAX_FILE_BYTES = 200 * 1024; // matches the server's per-state cap
 const SERVER_BATCH = 100; // matches the server's MAX_ASK_ITEMS
@@ -93,7 +96,7 @@ const Params = Type.Object({
 	private: Type.Optional(
 		Type.Boolean({
 			description:
-				"answer with Kev on the homelab instead of TypeSafe so content never leaves it; slower (~2s/file). Defaults to $JEV_ASK_PRIVATE=1",
+				"answer with open-weight Kev instead of TypeSafe: local Kev on this machine, else the homelab's (JEV_ASK_PRIVATE_BACKEND=homelab forces it). Content never leaves your machines; weaker on deep semantic questions. Defaults to $JEV_ASK_PRIVATE=1",
 		}),
 	),
 });
@@ -252,6 +255,39 @@ type AskResponse = {
 	usage?: { input_tokens?: number; output_tokens?: number };
 };
 
+/** Private mode on this machine: one request per item to a local Kev server.
+ * Undefined if nothing is listening, so the caller falls back to the homelab (also private). */
+async function askLocalKev(items: Item[], questions: unknown, signal?: AbortSignal): Promise<AskResponse | undefined> {
+	const answers: AskResponse["answers"] = {};
+	let inputTokens = 0;
+	let outputTokens = 0;
+	for (const [i, item] of items.entries()) {
+		const timeout = AbortSignal.timeout(120_000);
+		try {
+			const res = await fetch(JEV_ASK_KEV_URL, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ state: item.state.slice(0, KEV_MAX_STATE_CHARS), model: "kev-latest", questions }),
+				signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+			});
+			if (!res.ok) {
+				answers[item.id] = { error: `kev ${res.status}: ${(await res.text()).slice(0, 300)}` } as Record<string, Answer>;
+				continue;
+			}
+			const data = (await res.json()) as AskResponse & { answers: Record<string, Answer> };
+			answers[item.id] = data.answers;
+			if (item.state.length > KEV_MAX_STATE_CHARS) item.truncated = true;
+			inputTokens += data.usage?.input_tokens ?? 0;
+			outputTokens += data.usage?.output_tokens ?? 0;
+		} catch (e) {
+			if (signal?.aborted) throw e;
+			if (i === 0 && (e as { cause?: { code?: string } }).cause?.code === "ECONNREFUSED") return undefined;
+			answers[item.id] = { error: `kev: ${e instanceof Error ? e.message : String(e)}` } as Record<string, Answer>;
+		}
+	}
+	return { answers, usage: { input_tokens: inputTokens, output_tokens: outputTokens } };
+}
+
 function renderAnswer(name: string, a: Answer): string {
 	if (a.error) return `${name}: ERROR ${a.error}`;
 	if (a.type === "noul") return `${name}: ${a.noul !== undefined && a.noul >= 0.5 ? "yes" : "no"} (${fmt(a.noul)})`;
@@ -332,9 +368,19 @@ export default function askJevExtension(pi: ExtensionAPI) {
 			for (let i = 0; i < items.length; i += SERVER_BATCH) {
 				batches.push(items.slice(i, i + SERVER_BATCH));
 			}
-			const settled = await Promise.allSettled(
-				batches.map((b) => askServer(b, params.questions, privateMode, signal)),
-			);
+			const local =
+				privateMode && JEV_ASK_PRIVATE_BACKEND === "local"
+					? await askLocalKev(items, params.questions, signal)
+					: undefined;
+			const host = new URL(JEV_ASK_URL).host;
+			const backend = local
+				? "private: local Kev"
+				: privateMode
+					? `private: homelab Kev via ${host}${JEV_ASK_PRIVATE_BACKEND === "local" ? " (no local Kev running)" : ""}`
+					: `jev ${host}`;
+			const settled: PromiseSettledResult<AskResponse>[] = local
+				? [{ status: "fulfilled", value: local }]
+				: await Promise.allSettled(batches.map((b) => askServer(b, params.questions, privateMode, signal)));
 			const batchErrors: { batch: Item[]; message: string }[] = [];
 			const responses: AskResponse[] = [];
 			for (let i = 0; i < settled.length; i++) {
@@ -370,7 +416,7 @@ export default function askJevExtension(pi: ExtensionAPI) {
 			lines.push(
 				`${items.length} item${items.length === 1 ? "" : "s"} asked${
 					skipped.length ? `, ${skipped.length} skipped` : ""
-				} — ${privateMode ? "private: homelab Kev via" : "jev"} ${new URL(JEV_ASK_URL).host}`,
+				} — ${backend}`,
 			);
 			for (const item of items) {
 				const itemAnswers = answers[item.id];

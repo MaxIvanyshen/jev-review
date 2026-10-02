@@ -37,6 +37,8 @@ READ_CAP = MAX_STATE_BYTES + 8192  # bounds memory; header adds a little overhea
 MAX_ITEMS_PER_BATCH = 100
 MAX_TOTAL_FILES = 300
 MAX_VISITED_ENTRIES = 50_000
+DEFAULT_KEV_URL = "http://127.0.0.1:8009/v1/systemone"
+KEV_MAX_STATE_CHARS = 32_000  # Kev-0.8B is validated to ~8k tokens; matches jevkit/jev.py
 
 
 class LimitExceeded(Exception):
@@ -266,23 +268,54 @@ def run_batches(url, key, timeout, items, questions, private=False):
                 pass
 
         for it in batch:
-            ans = answers.get(it["id"])
-            truncated = it["client_truncated"]
-            if ans is None:
-                files.append({"path": it["id"], "answers": None, "error": "no answer returned for this id", "truncated": truncated})
-                continue
-            if set(ans) == {"error"}:
-                files.append({"path": it["id"], "answers": None, "error": ans["error"], "truncated": truncated})
-                continue
-            missing = question_names - set(ans)
-            if missing:
-                files.append(
-                    {"path": it["id"], "answers": None, "error": f"incomplete response: missing {sorted(missing)}", "truncated": truncated}
-                )
-                continue
-            truncated = truncated or bool(ans.get("_state_truncated"))
-            files.append({"path": it["id"], "answers": ans, "error": None, "truncated": truncated})
+            files.append(file_result(it, answers.get(it["id"]), question_names))
 
+    return files, usage
+
+
+def file_result(it, ans, question_names):
+    truncated = it["client_truncated"]
+    if ans is None:
+        return {"path": it["id"], "answers": None, "error": "no answer returned for this id", "truncated": truncated}
+    if set(ans) == {"error"}:
+        return {"path": it["id"], "answers": None, "error": ans["error"], "truncated": truncated}
+    missing = question_names - set(ans)
+    if missing:
+        return {"path": it["id"], "answers": None, "error": f"incomplete response: missing {sorted(missing)}", "truncated": truncated}
+    truncated = truncated or bool(ans.get("_state_truncated"))
+    return {"path": it["id"], "answers": ans, "error": None, "truncated": truncated}
+
+
+def run_local_kev(kev_url, timeout, items, questions):
+    """Private mode on this machine: one request per item to a local Kev
+    server. Returns None if nothing is listening, so the caller can fall
+    back to the homelab (also private)."""
+    files = []
+    usage = {"input_tokens": 0, "output_tokens": 0}
+    question_names = set(questions)
+    for it in items:
+        body = json.dumps({"state": it["state"][:KEV_MAX_STATE_CHARS], "model": "kev-latest", "questions": questions}).encode()
+        req = urllib.request.Request(kev_url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                parsed = json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            files.append({"path": it["id"], "answers": None, "error": f"kev error {e.code}: {e.read().decode(errors='replace')[:300]}", "truncated": it["client_truncated"]})
+            continue
+        except urllib.error.URLError as e:
+            if not files and isinstance(e.reason, ConnectionRefusedError):
+                return None
+            files.append({"path": it["id"], "answers": None, "error": f"kev connection error: {e.reason}", "truncated": it["client_truncated"]})
+            continue
+        ans = parsed.get("answers") if isinstance(parsed, dict) else None
+        if isinstance(ans, dict) and len(it["state"]) > KEV_MAX_STATE_CHARS:
+            ans["_state_truncated"] = True
+        files.append(file_result(it, ans, question_names))
+        for k in usage:
+            try:
+                usage[k] += int(parsed.get("usage", {}).get(k, 0))
+            except (TypeError, ValueError, AttributeError):
+                pass
     return files, usage
 
 
@@ -316,8 +349,7 @@ def print_human(report):
     for s in report["skipped"]:
         print(f"skipped: {s['path']} ({s['reason']})")
     u = report["usage"]
-    backend = "private: homelab Kev" if report.get("private") else "jev"
-    print(f"usage: input_tokens={u['input_tokens']} output_tokens={u['output_tokens']} ({backend})")
+    print(f"usage: input_tokens={u['input_tokens']} output_tokens={u['output_tokens']} ({report['backend']})")
 
 
 # --- main --------------------------------------------------------------
@@ -345,8 +377,16 @@ def parse_args(argv):
         "--private",
         action="store_true",
         default=os.environ.get("JEV_ASK_PRIVATE") == "1",
-        help="answer with Kev on the homelab instead of TypeSafe; nothing leaves the homelab, slower (default: $JEV_ASK_PRIVATE=1)",
+        help="answer with open-weight Kev instead of TypeSafe, so content stays on your machines (default: $JEV_ASK_PRIVATE=1)",
     )
+    parser.add_argument(
+        "--private-backend",
+        choices=("local", "homelab"),
+        default=os.environ.get("JEV_ASK_PRIVATE_BACKEND", "local"),
+        help="where --private runs: a Kev server on this machine (falls back to the homelab if none is running) "
+        "or the homelab's CPU Kev (default: $JEV_ASK_PRIVATE_BACKEND or local)",
+    )
+    parser.add_argument("--kev-url", default=os.environ.get("JEV_ASK_KEV_URL", DEFAULT_KEV_URL), help=f"local Kev endpoint (default: {DEFAULT_KEV_URL}, or $JEV_ASK_KEV_URL)")
     parser.add_argument("--timeout", type=float, default=600, help="request timeout in seconds (default: 600)")
     args = parser.parse_args(argv)
 
@@ -416,19 +456,27 @@ def main(argv=None):
     items, skipped = collect_items(args)
 
     if not items:
-        report = {"files": [], "skipped": [{"path": p, "reason": r} for p, r in skipped], "usage": {"input_tokens": 0, "output_tokens": 0}, "private": args.private}
+        report = {"files": [], "skipped": [{"path": p, "reason": r} for p, r in skipped], "usage": {"input_tokens": 0, "output_tokens": 0}, "private": args.private, "backend": "none"}
         if args.json:
             print(json.dumps(report, separators=(",", ":")))
         else:
             print_human(report)
         sys.exit(1)
 
-    files, usage = run_batches(args.url, args.key, args.timeout, items, questions, args.private)
+    local = args.private and args.private_backend == "local" and run_local_kev(args.kev_url, args.timeout, items, questions)
+    if local:
+        (files, usage), backend = local, "private: local Kev"
+    else:
+        files, usage = run_batches(args.url, args.key, args.timeout, items, questions, args.private)
+        backend = "jev"
+        if args.private:
+            backend = "private: homelab Kev" + (" (no local Kev running)" if args.private_backend == "local" else "")
     report = {
         "files": files,
         "skipped": [{"path": p, "reason": r} for p, r in skipped],
         "usage": usage,
         "private": args.private,
+        "backend": backend,
     }
 
     if args.json:
